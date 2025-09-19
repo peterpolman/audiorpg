@@ -1,0 +1,1229 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>RPG MVP — Stream + Speech (Server TTS + Browser STT)</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            color-scheme: light dark;
+        }
+
+        body {
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            background: black;
+            color: white;
+            overflow: hidden;
+            position: relative;
+        }
+
+        h1 {
+            position: absolute;
+            top: 2rem;
+            left: 2rem;
+            margin: 0;
+            font-size: 2rem;
+            font-weight: 300;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+        }
+
+        .text-stream {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            padding: 2rem;
+            box-sizing: border-box;
+            background: black;
+            color: white;
+            font-size: 18px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            z-index: 1;
+        }
+
+        .record-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 10;
+        }
+
+        .record-button {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+            user-select: none;
+            position: relative;
+        }
+
+        .record-button:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: scale(1.05);
+        }
+
+        .record-button:active,
+        .record-button.recording {
+            background: rgba(255, 0, 0, 0.3);
+            transform: scale(0.95);
+            box-shadow: 0 0 20px rgba(255, 0, 0, 0.5);
+        }
+
+        .record-icon {
+            width: 40px;
+            height: 40px;
+            background: white;
+            border-radius: 50%;
+            transition: all 0.2s ease;
+        }
+
+        .record-button.recording .record-icon {
+            background: red;
+            border-radius: 3px;
+            width: 32px;
+            height: 32px;
+        }
+
+        .status-container {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: .5rem 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 999px;
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .text-toggle {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            color: white;
+            font-size: 3rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .text-toggle:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.1);
+        }
+
+        .text-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 500px;
+            max-height: 70%;
+            background: rgba(0, 0, 0, 0.9);
+            backdrop-filter: blur(20px);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            overflow: hidden;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+
+        .text-popup div {
+            padding: 1rem
+        }
+
+        .text-popup.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, -50%) scale(0.8);
+        }
+
+        .popup-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            font-weight: 500;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .close-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .scene-content {
+            padding: 1rem;
+            overflow-y: auto;
+            max-height: 400px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .text-input {
+            width: calc(100% - 2rem);
+            padding: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 0.5rem;
+            color: white;
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 16px;
+            outline: none;
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .text-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .send-button {
+            width: 100%;
+            padding: 0.8rem;
+            margin-top: 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 0.5rem;
+            color: white;
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .send-button:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .character-popup {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 600px;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(20px);
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            z-index: 2000;
+            transition: all 0.3s ease;
+        }
+
+        .character-popup.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translate(-50%, -50%) scale(0.8);
+        }
+
+        .character-form {
+            padding: 1rem;
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .form-input {
+            width: calc(100% - 2rem);
+            padding: 0.8rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 0.5rem;
+            color: white;
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 16px;
+            outline: none;
+        }
+
+        .form-input::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .form-textarea {
+            width: calc(100% - 2rem);
+            padding: 0.8rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 0.5rem;
+            color: white;
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 16px;
+            outline: none;
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-textarea::placeholder {
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .start-button {
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1rem;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 0.5rem;
+            color: white;
+            font-family: 'Pixelify Sans', monospace;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .start-button:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-2px);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        @media (max-width: 768px) {
+            .record-button {
+                width: 100px;
+                height: 100px;
+            }
+
+            .record-icon {
+                width: 32px;
+                height: 32px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .text-stream {
+                font-size: 16px;
+                padding: 1rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Full Window Text Stream -->
+    <div id="textStream" class="text-stream"></div>
+
+    <!-- Record Button (bottom right) -->
+    <div class="record-container">
+        <button id="recordBtn" class="record-button">
+            <div class="record-icon"></div>
+        </button>
+    </div>
+
+    <!-- Status (center bottom) -->
+    <div class="status-container">
+        <span class="pill" id="status">Ready</span>
+    </div>
+
+    <!-- Scene Text Toggle (bottom right) -->
+    <button id="textToggle" class="text-toggle">
+        <svg xmlns="http://www.w3.org/2000/svg" width="35" height="48" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            class="lucide lucide-type-outline-icon lucide-type-outline">
+            <path
+                d="M14 16.5a.5.5 0 0 0 .5.5h.5a2 2 0 0 1 0 4H9a2 2 0 0 1 0-4h.5a.5.5 0 0 0 .5-.5v-9a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5V8a2 2 0 0 1-4 0V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-4 0v-.5a.5.5 0 0 0-.5-.5h-3a.5.5 0 0 0-.5.5Z" />
+        </svg>
+    </button>
+
+    <!-- Scene Text Popup (hidden by default) -->
+    <div id="textPopup" class="text-popup hidden">
+        <div class="popup-header">
+            <span>Scene Text</span>
+            <button id="closePopup" class="close-btn">×</button>
+        </div>
+        <div>
+            <textarea id="textInput" class="text-input" placeholder="Type your action here..."></textarea>
+            <button id="sendText" class="send-button">Send</button>
+        </div>
+    </div>
+
+    <!-- Character Setup Popup (shown on page load) -->
+    <div id="characterPopup" class="character-popup">
+        <div class="popup-header">
+            <span>Create Your Character</span>
+        </div>
+        <div class="character-form">
+            <div class="form-group">
+                <label class="form-label" for="charName">Character Name</label>
+                <input type="text" id="charName" class="form-input" placeholder="Enter your character's name"
+                    value="Kera">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="charClass">Class</label>
+                <input type="text" id="charClass" class="form-input" placeholder="e.g., Rogue, Warrior, Mage"
+                    value="Rogue">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="charTraits">Traits (comma-separated)</label>
+                <input type="text" id="charTraits" class="form-input" placeholder="e.g., careful, curious, brave"
+                    value="careful, curious">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="charBackstory">Backstory</label>
+                <textarea id="charBackstory" class="form-textarea"
+                    placeholder="Tell us about your character's background...">Street urchin from Lowspire, keeps a silver coin for luck.</textarea>
+            </div>
+            <button id="startAdventure" class="start-button">Start Adventure</button>
+        </div>
+    </div>
+
+    <script>
+        // ---------- Configuration ----------
+        let CHARACTER = {
+            "name": "Kera",
+            "class": "Rogue",
+            "traits": ["careful", "curious"],
+            "backstory": "Street urchin from Lowspire, keeps a silver coin for luck."
+        };
+
+        // ---------- Character Setup ----------
+        function loadCharacterFromStorage() {
+            const stored = localStorage.getItem('rpgCharacter');
+            if (stored) {
+                try {
+                    CHARACTER = JSON.parse(stored);
+                    populateCharacterForm();
+                } catch (e) {
+                    console.log('Invalid stored character data, using defaults');
+                }
+            }
+        }
+
+        function populateCharacterForm() {
+            charName.value = CHARACTER.name || '';
+            charClass.value = CHARACTER.class || '';
+            charTraits.value = Array.isArray(CHARACTER.traits) ? CHARACTER.traits.join(', ') : '';
+            charBackstory.value = CHARACTER.backstory || '';
+        }
+
+        function saveCharacterFromForm() {
+            CHARACTER = {
+                name: charName.value.trim() || 'Unknown',
+                class: charClass.value.trim() || 'Adventurer',
+                traits: charTraits.value.split(',').map(t => t.trim()).filter(t => t),
+                backstory: charBackstory.value.trim() || 'A mysterious adventurer.'
+            };
+            localStorage.setItem('rpgCharacter', JSON.stringify(CHARACTER));
+        }
+
+        // ---------- Session ----------
+        let sessionId = crypto.randomUUID();
+
+        // ---------- UI Elements ----------
+        const recordBtn = document.getElementById('recordBtn');
+        const status = document.getElementById('status');
+        const textToggle = document.getElementById('textToggle');
+        const textPopup = document.getElementById('textPopup');
+        const closePopup = document.getElementById('closePopup');
+        const textInput = document.getElementById('textInput');
+        const sendText = document.getElementById('sendText');
+        const textStream = document.getElementById('textStream');
+
+        // Character setup elements
+        const characterPopup = document.getElementById('characterPopup');
+        const charName = document.getElementById('charName');
+        const charClass = document.getElementById('charClass');
+        const charTraits = document.getElementById('charTraits');
+        const charBackstory = document.getElementById('charBackstory');
+        const startAdventure = document.getElementById('startAdventure');
+
+        // ---------- Audio Streaming from Server ----------
+        let audioQueue = [];
+        let isPlayingAudio = false;
+        let audioContext = null;
+        let lastFullScene = '';  // Track full accumulated text
+
+        // Initialize audio context
+        async function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+
+            return audioContext;
+        }
+
+        // Play audio buffer from server
+        async function playAudioChunk(audioBuffer) {
+            if (!audioContext) await initAudioContext();
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(audioContext.destination);
+            source.start();
+
+            return new Promise(resolve => {
+                source.onended = resolve;
+            });
+        }
+
+        // Queue audio for sequential playback
+        function queueAudio(audioData) {
+            console.log('Queueing audio buffer for playback');
+            audioQueue.push(audioData);
+            processAudioQueue();
+        }
+
+        async function processAudioQueue() {
+            if (isPlayingAudio || audioQueue.length === 0) return;
+
+            console.log('Starting audio playback, queue length:', audioQueue.length);
+            isPlayingAudio = true;
+
+            while (audioQueue.length > 0) {
+                const audioData = audioQueue.shift();
+                console.log('Playing audio chunk');
+                await playAudioChunk(audioData);
+            }
+
+            console.log('Audio playback complete');
+            isPlayingAudio = false;
+        }
+
+        // Enable speech functionality on first user interaction
+        function enableSpeech() {
+            console.log('Speech enabled');
+        }
+
+        // Stop any playing audio
+        function speakFlush() {
+            // Clear audio queue and stop current playback
+            audioQueue = [];
+            isPlayingAudio = false;
+        }
+
+        // Smooth text streaming with batched updates
+        let pendingTextUpdate = false;
+
+        function scheduleTextUpdate(newText) {
+            if (pendingTextUpdate) return;
+            pendingTextUpdate = true;
+            requestAnimationFrame(() => {
+                textStream.textContent = newText;
+                pendingTextUpdate = false;
+            });
+        }
+
+        let streamBuffer = '';
+        function onStreamDelta(txt) {
+            // Just accumulate text - actual display is handled separately
+            streamBuffer += txt;
+        }
+
+        function onStreamDone() {
+            streamBuffer = '';
+        }
+
+        // Handle audio streaming from server
+        function onAudioReceived(audioBase64, format = 'mp3') {
+            console.log('Audio received:', audioBase64.length, 'bytes, format:', format);
+            // Queue audio data for processing without blocking text flow
+            audioProcessingQueue.push({ audioBase64, format });
+            processAudioData();
+        }
+
+        // Separate audio processing queue to avoid blocking text
+        let audioProcessingQueue = [];
+        let isProcessingAudio = false;
+
+        async function processAudioData() {
+            if (isProcessingAudio || audioProcessingQueue.length === 0) return;
+
+            isProcessingAudio = true;
+
+            // Process audio in smaller chunks with yielding
+            while (audioProcessingQueue.length > 0) {
+                const { audioBase64, format } = audioProcessingQueue.shift();
+
+                try {
+                    // Use requestIdleCallback or setTimeout to yield to the main thread
+                    await new Promise(resolve => {
+                        if (window.requestIdleCallback) {
+                            requestIdleCallback(resolve);
+                        } else {
+                            setTimeout(resolve, 5); // Longer delay to ensure yielding
+                        }
+                    });
+
+                    // Convert base64 to array buffer
+                    const binaryString = atob(audioBase64);
+                    const bytes = new Uint8Array(binaryString.length);
+                    for (let i = 0; i < binaryString.length; i++) {
+                        bytes[i] = binaryString.charCodeAt(i);
+                    }
+
+                    // Initialize audio context if needed
+                    if (!audioContext) await initAudioContext();
+
+                    // Decode the audio data in chunks to avoid blocking
+                    console.log('Decoding audio data...');
+                    const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+                    console.log('Audio decoded successfully, duration:', audioBuffer.duration, 'seconds');
+
+                    // Queue the audio for playback
+                    queueAudio(audioBuffer);
+
+                } catch (error) {
+                    console.error('Audio playback error:', error);
+                }
+
+                // Yield again after processing each chunk
+                await new Promise(resolve => setTimeout(resolve, 1));
+            }
+
+            isProcessingAudio = false;
+        }
+
+        function sentenceSplit(t) {
+            return t.replace(/\s+/g, ' ').split(/(?<=[\.!\?])\s+(?=[A-Z(""'])/g).filter(Boolean);
+        }
+
+        // ---------- Recording & Speech Recognition ----------
+        let mediaStream, mediaRecorder, chunks = [], isRecording = false;
+        let speechRecognition = null;
+        let audioLevelMonitor = null;
+        let audioLevel = 0;
+
+        // Initialize Speech Recognition API
+        function initSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                console.warn('Speech Recognition API not supported in this browser');
+                return null;
+            }
+
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
+
+            return recognition;
+        }
+
+        async function ensureMic() {
+            if (mediaStream) {
+                console.log('Media stream already exists');
+                return mediaStream;
+            }
+
+            console.log('Requesting microphone access...');
+
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    }
+                });
+                console.log('Microphone access granted');
+                return mediaStream;
+            } catch (e) {
+                console.error('Microphone access failed:', e);
+                throw e;
+            }
+        }
+
+        // Simple speech recognition using browser API
+        function startSpeechRecognition() {
+            return new Promise((resolve, reject) => {
+                const recognition = initSpeechRecognition();
+
+                if (!recognition) {
+                    reject(new Error('Speech Recognition not supported'));
+                    return;
+                }
+
+                recognition.onresult = (event) => {
+                    if (event.results.length > 0) {
+                        const transcript = event.results[0][0].transcript.trim();
+                        console.log('Speech recognition result:', transcript);
+                        resolve(transcript);
+                    } else {
+                        resolve('');
+                    }
+                };
+
+                recognition.onerror = (event) => {
+                    console.error('Speech recognition error:', event.error);
+                    reject(new Error(`Speech recognition failed: ${event.error}`));
+                };
+
+                recognition.onend = () => {
+                    console.log('Speech recognition ended');
+                };
+
+                console.log('Starting speech recognition...');
+                recognition.start();
+            });
+        }
+
+        // Calculate average audio level
+        function calculateAudioLevel(audioData) {
+            let sum = 0;
+            for (let i = 0; i < audioData.length; i++) {
+                sum += Math.abs(audioData[i]);
+            }
+            return sum / audioData.length;
+        }
+
+        // Post-process transcription to improve accuracy
+        function postProcessTranscription(text) {
+            if (!text) return text;
+
+            // Remove common transcription artifacts
+            text = text.trim();
+
+            // Remove repeated words (common with poor audio)
+            text = text.replace(/\b(\w+)\s+\1\b/gi, '$1');
+
+            // Fix common misheard words in RPG context
+            const replacements = {
+                'i want to': 'I want to',
+                'i go to': 'I go to',
+                'i walk to': 'I walk to',
+                'i look at': 'I look at',
+                'i search': 'I search',
+                'i attack': 'I attack',
+                'i cast': 'I cast',
+                'i use': 'I use',
+                'i pick up': 'I pick up',
+                'i take': 'I take',
+                ' um ': ' ',
+                ' uh ': ' ',
+                ' er ': ' ',
+                'and and': 'and',
+                'the the': 'the',
+                'to to': 'to'
+            };
+
+            for (const [wrong, correct] of Object.entries(replacements)) {
+                text = text.replace(new RegExp(wrong, 'gi'), correct);
+            }
+
+            // Ensure first letter is capitalized
+            if (text.length > 0) {
+                text = text.charAt(0).toUpperCase() + text.slice(1);
+            }
+
+            // Add period if missing and text is substantial
+            if (text.length > 3 && !text.match(/[.!?]$/)) {
+                text += '.';
+            }
+
+            return text;
+        }
+
+        // Send transcribed text to story generation
+        async function sendTextToStory(text) {
+            if (!text || !text.trim()) {
+                setStatus('No speech detected. Try again.');
+                return;
+            }
+
+            setStatus('Generating story...');
+            textStream.textContent = '';
+            lastFullScene = '';
+            speakFlush();
+
+            const payload = {
+                sessionId: sessionId,
+                character: CHARACTER,
+                action: text.trim()
+            };
+
+            try {
+                // Start text streaming immediately
+                const textPromise = streamText(payload);
+
+                // Start audio streaming in parallel after text is complete
+                textPromise.then(fullText => {
+                    if (fullText && fullText.trim()) {
+                        streamAudio(fullText);
+                    }
+                });
+
+                await textPromise;
+            } catch (e) {
+                console.error('Story generation error:', e);
+                setStatus('Error. Try again.');
+            }
+        }
+
+        // Handle text-only streaming
+        async function streamText(payload) {
+            const message = encodeURIComponent(payload.message);
+            const resp = await fetch(`/api/text-stream?message=${message}`);
+
+            if (!resp.ok || !resp.body) {
+                setStatus('Connection error');
+                throw new Error('Text stream connection failed');
+            }
+
+            const reader = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let fullText = '';
+
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let idx;
+                while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                    const rawEvent = buffer.slice(0, idx).trim();
+                    buffer = buffer.slice(idx + 2);
+                    if (!rawEvent.startsWith('data:')) continue;
+
+                    try {
+                        const payload = JSON.parse(rawEvent.slice(5).trim());
+                        if (payload.type === 'status') {
+                            setStatus(payload.message);
+                        }
+                        if (payload.type === 'delta') {
+                            lastFullScene += payload.text;
+                            fullText += payload.text;
+                            scheduleTextUpdate(lastFullScene);
+                            onStreamDelta(payload.text);
+                        }
+                        if (payload.type === 'error') {
+                            const errorMsg = `\n[error] ${payload.message}\n`;
+                            lastFullScene += errorMsg;
+                            fullText += errorMsg;
+                            scheduleTextUpdate(lastFullScene);
+                            setStatus('Error occurred');
+                        }
+                        if (payload.type === 'done') {
+                            setStatus('Ready');
+                            onStreamDone();
+                        }
+                    } catch { }
+                }
+            }
+
+            return fullText;
+        }
+
+        // Handle audio-only streaming (parallel to text)
+        async function streamAudio(fullText) {
+            try {
+                const text = encodeURIComponent(fullText);
+                const resp = await fetch(`/api/audio-stream?text=${text}`);
+
+                if (!resp.ok || !resp.body) {
+                    console.warn('Audio stream connection failed');
+                    return;
+                }
+
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+
+                    let idx;
+                    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+                        const rawEvent = buffer.slice(0, idx).trim();
+                        buffer = buffer.slice(idx + 2);
+                        if (!rawEvent.startsWith('data:')) continue;
+
+                        try {
+                            const payload = JSON.parse(rawEvent.slice(5).trim());
+                            if (payload.type === 'audio') {
+                                onAudioReceived(payload.audio, payload.format);
+                            }
+                            if (payload.type === 'error') {
+                                console.warn('Audio generation error:', payload.message);
+                            }
+                        } catch { }
+                    }
+                }
+            } catch (e) {
+                console.warn('Audio streaming error:', e);
+            }
+        }
+
+        // Audio level monitoring
+        function startAudioLevelMonitoring() {
+            if (!mediaStream || audioLevelMonitor) return;
+
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const analyser = audioContext.createAnalyser();
+            const microphone = audioContext.createMediaStreamSource(mediaStream);
+
+            analyser.fftSize = 256;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            microphone.connect(analyser);
+
+            function updateAudioLevel() {
+                if (!isRecording) return;
+
+                analyser.getByteFrequencyData(dataArray);
+
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    sum += dataArray[i];
+                }
+
+                audioLevel = sum / bufferLength / 255; // Normalize to 0-1
+
+                // Update status with audio level feedback
+                if (audioLevel < 0.1) {
+                    setStatus('Recording... (speak louder)');
+                } else if (audioLevel > 0.8) {
+                    setStatus('Recording... (too loud)');
+                } else {
+                    setStatus('Recording... (good level)');
+                }
+
+                requestAnimationFrame(updateAudioLevel);
+            }
+
+            audioLevelMonitor = updateAudioLevel;
+            updateAudioLevel();
+        }
+
+        function stopAudioLevelMonitoring() {
+            audioLevelMonitor = null;
+            audioLevel = 0;
+        }
+
+        async function startRecording() {
+            // Prevent multiple simultaneous recordings
+            if (isRecording) {
+                console.log('Already recording, ignoring start request');
+                return;
+            }
+
+            console.log('Starting speech recognition...');
+
+            try {
+                await ensureMic(); // Still need mic permission for audio level monitoring
+                speakFlush(); // avoid echo
+
+                isRecording = true;
+                recordBtn.classList.add('recording');
+                setStatus('Listening...');
+
+                // Start audio level monitoring for visual feedback
+                startAudioLevelMonitoring();
+
+                // Use Speech Recognition API directly
+                try {
+                    const transcribedText = await startSpeechRecognition();
+
+                    if (transcribedText && transcribedText.trim()) {
+                        console.log('Speech recognition successful:', transcribedText);
+                        await sendTextToStory(transcribedText);
+                    } else {
+                        setStatus('No speech detected. Try again.');
+                    }
+                } catch (error) {
+                    console.error('Speech recognition failed:', error);
+                    setStatus('Speech recognition failed. Try again.');
+                }
+
+            } catch (e) {
+                console.error('Recording start failed:', e);
+                setStatus('Microphone access required');
+                isRecording = false;
+                recordBtn.classList.remove('recording');
+            }
+        }
+
+        function stopRecording() {
+            // Only stop if actually recording
+            if (!isRecording) {
+                console.log('Not recording, ignoring stop request');
+                return;
+            }
+
+            console.log('Stopping speech recognition...');
+            isRecording = false;
+            recordBtn.classList.remove('recording');
+            stopAudioLevelMonitoring();
+            setStatus('Processing...');
+
+            // Note: Speech Recognition API handles stopping automatically
+            // when the user stops speaking or when onresult/onerror is called
+        }        // ---------- Story Streaming ----------
+        function setStatus(s) {
+            status.textContent = s;
+        }
+
+        async function sendAction(action) {
+            setStatus('Generating story...');
+            textStream.textContent = '';
+            lastFullScene = '';
+            speakFlush();
+
+            const payload = {
+                sessionId: sessionId,
+                character: CHARACTER,
+                action: action || 'Begin the adventure.'
+            };
+
+            try {
+                // Start text streaming immediately
+                const textPromise = streamText(payload);
+
+                // Start audio streaming in parallel after text is complete
+                textPromise.then(fullText => {
+                    if (fullText && fullText.trim()) {
+                        streamAudio(fullText);
+                    }
+                });
+
+                await textPromise;
+            } catch (e) {
+                setStatus('Error. Try again.');
+            }
+        }
+
+        // ---------- Event Listeners ----------
+
+        // Record button - hold to record (mouse events)
+        recordBtn.addEventListener('mousedown', async (e) => {
+            e.preventDefault();
+            console.log('Mouse down - starting recording');
+            // Initialize audio context on user interaction
+            await initAudioContext();
+            startRecording();
+        });
+
+        recordBtn.addEventListener('mouseup', (e) => {
+            e.preventDefault();
+            console.log('Mouse up - stopping recording');
+            stopRecording();
+        });
+
+        recordBtn.addEventListener('mouseleave', (e) => {
+            console.log('Mouse leave - stopping recording');
+            stopRecording();
+        });
+
+        // Prevent accidental clicks from interfering with hold-to-record
+        recordBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+
+        // Touch support for mobile
+        recordBtn.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Touch start - starting recording');
+            startRecording();
+        });
+
+        recordBtn.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            console.log('Touch end - stopping recording');
+            stopRecording();
+        });
+
+        // Handle touch cancel (when user drags finger away)
+        recordBtn.addEventListener('touchcancel', (e) => {
+            e.preventDefault();
+            console.log('Touch cancel - stopping recording');
+            stopRecording();
+        });
+
+        // Global event to stop recording if user releases outside button
+        document.addEventListener('mouseup', (e) => {
+            if (isRecording && !recordBtn.contains(e.target)) {
+                console.log('Global mouse up - stopping recording');
+                stopRecording();
+            }
+        });
+
+        // Handle keyboard events (spacebar for recording)
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' && !isRecording && document.activeElement === document.body) {
+                e.preventDefault();
+                console.log('Spacebar down - starting recording');
+                startRecording();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && isRecording) {
+                e.preventDefault();
+                console.log('Spacebar up - stopping recording');
+                stopRecording();
+            }
+        });
+
+        // Text input popup toggle
+        textToggle.addEventListener('click', () => {
+            textPopup.classList.toggle('hidden');
+            if (!textPopup.classList.contains('hidden')) {
+                textInput.focus();
+            }
+        });
+
+        closePopup.addEventListener('click', () => {
+            textPopup.classList.add('hidden');
+        });
+
+        // Send text action
+        sendText.addEventListener('click', async () => {
+            // Initialize audio context on user interaction
+            await initAudioContext();
+
+            const action = textInput.value.trim();
+            if (action) {
+                sendAction(action);
+                textInput.value = '';
+                textPopup.classList.add('hidden');
+            }
+        });
+
+        // Send on Enter key (Shift+Enter for new line)
+        textInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                const action = textInput.value.trim();
+                if (action) {
+                    sendAction(action);
+                    textInput.value = '';
+                    textPopup.classList.add('hidden');
+                }
+            }
+        });
+
+        // Close popup when clicking outside
+        textPopup.addEventListener('click', (e) => {
+            if (e.target === textPopup) {
+                textPopup.classList.add('hidden');
+            }
+        });
+
+        // Character setup event listeners
+        startAdventure.addEventListener('click', () => {
+            saveCharacterFromForm();
+            characterPopup.classList.add('hidden');
+            setStatus('Ready');
+        });
+
+        // Prevent character popup from closing when clicking inside
+        characterPopup.addEventListener('click', (e) => {
+            e.stopPropagation();
+        });
+
+        // ---------- Initialization ----------
+
+        // Load character data and show setup popup on page load
+        loadCharacterFromStorage();
+
+        // Load models immediately on page load
+        window.addEventListener('load', async () => {
+            try {
+                setStatus('Initializing...');
+
+                // Check if Speech Recognition is supported
+                if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                    setStatus('Speech Recognition not supported');
+                    console.warn('Speech Recognition API not supported in this browser');
+                } else {
+                    console.log('Speech Recognition API available');
+                }
+
+                // Initialize audio context for playback
+                await initAudioContext();
+                console.log('Audio context ready');
+
+                setStatus('Ready');
+            } catch (error) {
+                console.error('Failed to initialize:', error);
+                setStatus('Initialization failed');
+            }
+        });
+
+        // No auto-start - wait for first recording
+    </script>
+</body>
+
+</html>
