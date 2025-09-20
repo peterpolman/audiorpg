@@ -1,8 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import OpenAI from "openai";
-import { getOrCreateSession } from "./sessions.js";
-import { updateSummary } from "./summarizer.js";
+import { getOrCreateSession } from "./api/sessions.js";
+import { updateSummary } from "./api/summarizer.js";
 // --- Direct Whisper STT using Transformers.js ---
 import { pipeline } from "@xenova/transformers";
 import { spawn } from "child_process";
@@ -421,84 +421,6 @@ function extractCompleteSentences(text) {
   };
 }
 
-// body:
-// { sessionId, character, action: "A"|"B"|string }
-app.post("/stream", async (req, res) => {
-  const { sessionId, character, action } = req.body || {};
-  if (!sessionId || !character || !action) {
-    return res
-      .status(400)
-      .json({ error: "Missing sessionId, character or action" });
-  }
-
-  const session = getOrCreateSession(sessionId);
-
-  // Build prompt with summary + lastScene + recent
-  const prompt = buildPrompt({
-    character,
-    action,
-    summary: session.summary,
-    lastScene: session.lastScene,
-    recent: session.recent,
-  });
-
-  // SSE headers
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  sseWrite(res, { type: "open" });
-
-  let fullScene = ""; // accumulate streamed text to update memory later
-
-  try {
-    const stream = await client.responses.create({
-      model: MODEL,
-      input: prompt,
-      stream: true,
-    });
-
-    for await (const event of stream) {
-      if (event.type === "response.output_text.delta") {
-        fullScene += event.delta;
-        sseWrite(res, { type: "delta", text: event.delta });
-      } else if (event.type === "response.error") {
-        sseWrite(res, {
-          type: "error",
-          message: event.error?.message || "OpenAI error",
-        });
-      } else if (event.type === "response.completed") {
-        sseWrite(res, { type: "done" });
-      }
-    }
-  } catch (err) {
-    sseWrite(res, {
-      type: "error",
-      message: err?.message || "Upstream failure",
-    });
-  } finally {
-    res.end();
-  }
-
-  // --- Memory maintenance (after sending response) ---
-  try {
-    session.recent.push({ action: String(action), scene: fullScene.trim() });
-
-    // Always remember the lastScene (for A/B resolution next turn)
-    session.lastScene = fullScene.trim();
-    session.summary = await updateSummary({
-      oldSummary: session.summary,
-      recent: session.recent,
-      state: session.state,
-    });
-  } catch {
-    // If summarization fails, keep current memory as-is
-  } finally {
-    console.log(`${session.summary}\n`);
-    // console.log(`${JSON.stringify(session.recent)}\n`);
-    console.log(`${JSON.stringify(session.state)}\n`);
-  }
-});
-
 function buildPrompt({ character, action, summary, lastScene, recent }) {
   const isAB = typeof action === "string" && /^[ab]$/i.test(action);
   const normalized = isAB ? action.toUpperCase() : action;
@@ -549,65 +471,8 @@ B) <New option B>
 `.trim();
 }
 
-// Audio-only streaming endpoint (processes full text to audio)
-app.post("/audio-stream", async (req, res) => {
-  try {
-    const { sessionId, text } = req.body || {};
-
-    if (!sessionId || !text) {
-      return res.status(400).json({ error: "Missing sessionId or text" });
-    }
-
-    // SSE headers
-    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("Connection", "keep-alive");
-
-    sseWrite(res, { type: "status", message: "Converting to audio..." });
-
-    // Process the full text for TTS
-    const sentences = extractCompleteSentences(text + "."); // Ensure we get all sentences
-    const allSentences = sentences.complete;
-
-    if (allSentences.trim()) {
-      try {
-        console.log(`Converting to audio: "${allSentences.slice(0, 50)}..."`);
-
-        const ttsResponse = await client.audio.speech.create({
-          model: "tts-1",
-          voice: "alloy",
-          input: allSentences,
-          response_format: "mp3",
-        });
-
-        // Convert to base64 and stream
-        const audioBuffer = Buffer.from(await ttsResponse.arrayBuffer());
-        const base64Audio = audioBuffer.toString("base64");
-
-        sseWrite(res, {
-          type: "audio",
-          audio: base64Audio,
-          format: "mp3",
-        });
-
-        console.log(`Audio generated and sent (${audioBuffer.length} bytes)`);
-      } catch (ttsError) {
-        console.error("TTS Error:", ttsError);
-        sseWrite(res, { type: "error", message: "Audio generation failed" });
-      }
-    }
-
-    sseWrite(res, { type: "done" });
-    res.end();
-  } catch (e) {
-    console.error("Audio Stream Error:", e);
-    sseWrite(res, { type: "error", message: "Error generating audio" });
-    res.end();
-  }
-});
-
 // Text-only streaming endpoint (no audio processing)
-app.post("/text-stream", async (req, res) => {
+app.post("/api/text-stream", async (req, res) => {
   try {
     const { sessionId, character, action } = req.body || {};
 

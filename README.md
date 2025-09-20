@@ -5,7 +5,7 @@ An interactive RPG game with dual-stream architecture featuring browser speech r
 ## Features
 
 - **Browser Speech Recognition**: Fast, local speech-to-text using browser APIs
-- **Dual-Stream Architecture**: Separate text and audio streaming for optimal performance  
+- **Dual-Stream Architecture**: Separate text and audio streaming for optimal performance
 - **Real-time TTS**: OpenAI text-to-speech with streaming audio playback
 - **Session Management**: Persistent game sessions with conversation history
 - **Immersive Interface**: Full-screen fantasy-themed UI
@@ -27,21 +27,25 @@ An interactive RPG game with dual-stream architecture featuring browser speech r
 ### Steps
 
 1. **Clone and setup**:
+
    ```bash
    git clone <your-repo>
    cd audiorpg
    ```
 
 2. **Install Vercel CLI**:
+
    ```bash
    npm i -g vercel
    ```
 
 3. **Set up environment variables**:
+
    - Copy `.env.example` to `.env.local`
    - Add your OpenAI API key to `.env.local`
 
 4. **Deploy**:
+
    ```bash
    vercel
    ```
@@ -62,11 +66,13 @@ An interactive RPG game with dual-stream architecture featuring browser speech r
 ## Local Development
 
 1. **Install dependencies**:
+
    ```bash
    npm install
    ```
 
 2. **Set up environment**:
+
    ```bash
    cp .env.example .env
    # Edit .env with your OpenAI API key
@@ -94,7 +100,7 @@ An interactive RPG game with dual-stream architecture featuring browser speech r
 ## API Endpoints
 
 - `GET /api/text-stream?message=<text>` - Stream text responses
-- `GET /api/audio-stream?text=<text>` - Stream audio responses  
+- `GET /api/audio-stream?text=<text>` - Stream audio responses
 - `GET /api/health` - Health check
 
 ## Performance Optimizations

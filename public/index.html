@@ -497,72 +497,18 @@
         const charBackstory = document.getElementById('charBackstory');
         const startAdventure = document.getElementById('startAdventure');
 
-        // ---------- Audio Streaming from Server ----------
-        let audioQueue = [];
-        let isPlayingAudio = false;
-        let audioContext = null;
+        // ---------- Browser Speech Synthesis ----------
         let lastFullScene = '';  // Track full accumulated text
 
-        // Initialize audio context
-        async function initAudioContext() {
-            if (!audioContext) {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-
-            if (audioContext.state === 'suspended') {
-                await audioContext.resume();
-            }
-
-            return audioContext;
-        }
-
-        // Play audio buffer from server
-        async function playAudioChunk(audioBuffer) {
-            if (!audioContext) await initAudioContext();
-
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            source.start();
-
-            return new Promise(resolve => {
-                source.onended = resolve;
-            });
-        }
-
-        // Queue audio for sequential playback
-        function queueAudio(audioData) {
-            console.log('Queueing audio buffer for playback');
-            audioQueue.push(audioData);
-            processAudioQueue();
-        }
-
-        async function processAudioQueue() {
-            if (isPlayingAudio || audioQueue.length === 0) return;
-
-            console.log('Starting audio playback, queue length:', audioQueue.length);
-            isPlayingAudio = true;
-
-            while (audioQueue.length > 0) {
-                const audioData = audioQueue.shift();
-                console.log('Playing audio chunk');
-                await playAudioChunk(audioData);
-            }
-
-            console.log('Audio playback complete');
-            isPlayingAudio = false;
-        }
-
-        // Enable speech functionality on first user interaction
-        function enableSpeech() {
-            console.log('Speech enabled');
-        }
-
-        // Stop any playing audio
+        // Stop any ongoing speech
         function speakFlush() {
-            // Clear audio queue and stop current playback
-            audioQueue = [];
-            isPlayingAudio = false;
+            // Cancel any ongoing speech synthesis
+            if (speechSynthesis.speaking) {
+                speechSynthesis.cancel();
+            }
+            // Reset speech tracking
+            spokenTextLength = 0;
+            lastSpeechText = '';
         }
 
         // Smooth text streaming with batched updates
@@ -577,82 +523,8 @@
             });
         }
 
-        let streamBuffer = '';
-        function onStreamDelta(txt) {
-            // Just accumulate text - actual display is handled separately
-            streamBuffer += txt;
-        }
-
-        function onStreamDone() {
-            streamBuffer = '';
-        }
-
-        // Handle audio streaming from server
-        function onAudioReceived(audioBase64, format = 'mp3') {
-            console.log('Audio received:', audioBase64.length, 'bytes, format:', format);
-            // Queue audio data for processing without blocking text flow
-            audioProcessingQueue.push({ audioBase64, format });
-            processAudioData();
-        }
-
-        // Separate audio processing queue to avoid blocking text
-        let audioProcessingQueue = [];
-        let isProcessingAudio = false;
-
-        async function processAudioData() {
-            if (isProcessingAudio || audioProcessingQueue.length === 0) return;
-
-            isProcessingAudio = true;
-
-            // Process audio in smaller chunks with yielding
-            while (audioProcessingQueue.length > 0) {
-                const { audioBase64, format } = audioProcessingQueue.shift();
-
-                try {
-                    // Use requestIdleCallback or setTimeout to yield to the main thread
-                    await new Promise(resolve => {
-                        if (window.requestIdleCallback) {
-                            requestIdleCallback(resolve);
-                        } else {
-                            setTimeout(resolve, 5); // Longer delay to ensure yielding
-                        }
-                    });
-
-                    // Convert base64 to array buffer
-                    const binaryString = atob(audioBase64);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-
-                    // Initialize audio context if needed
-                    if (!audioContext) await initAudioContext();
-
-                    // Decode the audio data in chunks to avoid blocking
-                    console.log('Decoding audio data...');
-                    const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-                    console.log('Audio decoded successfully, duration:', audioBuffer.duration, 'seconds');
-
-                    // Queue the audio for playback
-                    queueAudio(audioBuffer);
-
-                } catch (error) {
-                    console.error('Audio playback error:', error);
-                }
-
-                // Yield again after processing each chunk
-                await new Promise(resolve => setTimeout(resolve, 1));
-            }
-
-            isProcessingAudio = false;
-        }
-
-        function sentenceSplit(t) {
-            return t.replace(/\s+/g, ' ').split(/(?<=[\.!\?])\s+(?=[A-Z(""'])/g).filter(Boolean);
-        }
-
         // ---------- Recording & Speech Recognition ----------
-        let mediaStream, mediaRecorder, chunks = [], isRecording = false;
+        let mediaStream, isRecording = false;
         let speechRecognition = null;
         let audioLevelMonitor = null;
         let audioLevel = 0;
@@ -733,15 +605,6 @@
             });
         }
 
-        // Calculate average audio level
-        function calculateAudioLevel(audioData) {
-            let sum = 0;
-            for (let i = 0; i < audioData.length; i++) {
-                sum += Math.abs(audioData[i]);
-            }
-            return sum / audioData.length;
-        }
-
         // Post-process transcription to improve accuracy
         function postProcessTranscription(text) {
             if (!text) return text;
@@ -808,16 +671,12 @@
             };
 
             try {
-                // Start text streaming immediately
+                // Reset speech tracking for new conversation
+                spokenTextLength = 0;
+                lastSpeechText = '';
+
+                // Start text streaming immediately with real-time speech
                 const textPromise = streamText(payload);
-
-                // Start audio streaming in parallel after text is complete
-                textPromise.then(fullText => {
-                    if (fullText && fullText.trim()) {
-                        streamAudio(fullText);
-                    }
-                });
-
                 await textPromise;
             } catch (e) {
                 console.error('Story generation error:', e);
@@ -827,8 +686,11 @@
 
         // Handle text-only streaming
         async function streamText(payload) {
-            const message = encodeURIComponent(payload.message);
-            const resp = await fetch(`/api/text-stream?message=${message}`);
+            const resp = await fetch('/api/text-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
             if (!resp.ok || !resp.body) {
                 setStatus('Connection error');
@@ -839,6 +701,7 @@
             const decoder = new TextDecoder();
             let buffer = '';
             let fullText = '';
+            let speechBuffer = ''; // Buffer for accumulating text for speech
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -859,8 +722,13 @@
                         if (payload.type === 'delta') {
                             lastFullScene += payload.text;
                             fullText += payload.text;
+                            speechBuffer += payload.text;
+
+                            // Update text display
                             scheduleTextUpdate(lastFullScene);
-                            onStreamDelta(payload.text);
+
+                            // Check for complete sentences and speak them immediately
+                            speakRealtimeText(speechBuffer);
                         }
                         if (payload.type === 'error') {
                             const errorMsg = `\n[error] ${payload.message}\n`;
@@ -871,7 +739,6 @@
                         }
                         if (payload.type === 'done') {
                             setStatus('Ready');
-                            onStreamDone();
                         }
                     } catch { }
                 }
@@ -880,46 +747,60 @@
             return fullText;
         }
 
-        // Handle audio-only streaming (parallel to text)
-        async function streamAudio(fullText) {
-            try {
-                const text = encodeURIComponent(fullText);
-                const resp = await fetch(`/api/audio-stream?text=${text}`);
+        // Real-time speech synthesis as text streams in
+        let spokenTextLength = 0; // Track how much text we've already spoken
+        let lastSpeechText = ''; // Track the last text we spoke to prevent duplicates
 
-                if (!resp.ok || !resp.body) {
-                    console.warn('Audio stream connection failed');
-                    return;
-                }
+        function speakRealtimeText(accumulatedText) {
+            // Only process new text that hasn't been spoken yet
+            const newText = accumulatedText.slice(spokenTextLength);
+            if (!newText.trim()) return;
 
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
+            // Look for complete sentences in the new text
+            const sentenceRegex = /[.!?]+\s*/g;
+            let match;
+            let lastCompleteIndex = 0;
 
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    buffer += decoder.decode(value, { stream: true });
-
-                    let idx;
-                    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-                        const rawEvent = buffer.slice(0, idx).trim();
-                        buffer = buffer.slice(idx + 2);
-                        if (!rawEvent.startsWith('data:')) continue;
-
-                        try {
-                            const payload = JSON.parse(rawEvent.slice(5).trim());
-                            if (payload.type === 'audio') {
-                                onAudioReceived(payload.audio, payload.format);
-                            }
-                            if (payload.type === 'error') {
-                                console.warn('Audio generation error:', payload.message);
-                            }
-                        } catch { }
-                    }
-                }
-            } catch (e) {
-                console.warn('Audio streaming error:', e);
+            while ((match = sentenceRegex.exec(newText)) !== null) {
+                lastCompleteIndex = match.index + match[0].length;
             }
+
+            // If we found complete sentences, speak them
+            if (lastCompleteIndex > 0) {
+                const completeSentences = newText.slice(0, lastCompleteIndex).trim();
+                if (completeSentences && completeSentences !== lastSpeechText) {
+                    speakText(completeSentences);
+                    lastSpeechText = completeSentences;
+                    // Update spokenTextLength to reflect the total amount spoken from the full accumulated text
+                    spokenTextLength = spokenTextLength + lastCompleteIndex;
+                }
+            }
+        }
+
+        // Use browser TTS to speak text in real-time
+        function speakText(text) {
+            if (!text || text.trim() === '') return;
+
+            // Don't cancel ongoing speech - queue it instead for smooth playback
+            const utterance = new SpeechSynthesisUtterance(text);
+
+            // Configure voice settings
+            utterance.rate = 1;
+            utterance.pitch = 1.0;
+            utterance.volume = 1.0;
+
+            // Try to use a good voice if available
+            const voices = speechSynthesis.getVoices();
+            const preferredVoice = voices.find(voice =>
+                voice.name.includes('Google UK English Male') &&
+                voice.lang.startsWith('en')
+            );
+            if (preferredVoice) {
+                utterance.voice = preferredVoice;
+            }
+
+            // Speak the text
+            speechSynthesis.speak(utterance);
         }
 
         // Audio level monitoring
@@ -1045,16 +926,12 @@
             };
 
             try {
-                // Start text streaming immediately
+                // Reset speech tracking for new conversation
+                spokenTextLength = 0;
+                lastSpeechText = '';
+
+                // Start text streaming immediately with real-time speech
                 const textPromise = streamText(payload);
-
-                // Start audio streaming in parallel after text is complete
-                textPromise.then(fullText => {
-                    if (fullText && fullText.trim()) {
-                        streamAudio(fullText);
-                    }
-                });
-
                 await textPromise;
             } catch (e) {
                 setStatus('Error. Try again.');
@@ -1067,8 +944,6 @@
         recordBtn.addEventListener('mousedown', async (e) => {
             e.preventDefault();
             console.log('Mouse down - starting recording');
-            // Initialize audio context on user interaction
-            await initAudioContext();
             startRecording();
         });
 
@@ -1150,9 +1025,6 @@
 
         // Send text action
         sendText.addEventListener('click', async () => {
-            // Initialize audio context on user interaction
-            await initAudioContext();
-
             const action = textInput.value.trim();
             if (action) {
                 sendAction(action);
@@ -1211,18 +1083,14 @@
                     console.log('Speech Recognition API available');
                 }
 
-                // Initialize audio context for playback
-                await initAudioContext();
-                console.log('Audio context ready');
+                console.log('Speech synthesis ready');
 
                 setStatus('Ready');
             } catch (error) {
                 console.error('Failed to initialize:', error);
                 setStatus('Initialization failed');
             }
-        });
-
-        // No auto-start - wait for first recording
+        });        // No auto-start - wait for first recording
     </script>
 </body>
 
